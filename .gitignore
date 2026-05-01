@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local data and generated artifacts
+data/raw/*
+data/processed/*
+checkpoints/*
+experiments/*
+submissions/*
+tests/fixtures/*.hdf5
+
+!.gitkeep
