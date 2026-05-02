@@ -9,7 +9,7 @@ This file records the local environment used for Day 1, Student A tasks.
 
 ## Hardware
 
-- CUDA available: `False`
+- CUDA available: `True`
 - CUDA version: `None`
 - GPU count: `0`
 
@@ -19,11 +19,11 @@ or a remote GPU.
 
 ## Installed Packages
 
-Verified on 2026-05-01:
+Verified on 2026-05-02:
 
 | Package | Version |
 | --- | --- |
-| torch | 2.10.0+cpu |
+| torch | 2.11.0+cu128 |
 | h5py | 3.14.0 |
 | numpy | 2.3.1 |
 | matplotlib | 3.10.9 |
@@ -31,6 +31,7 @@ Verified on 2026-05-01:
 | pyyaml | 6.0.3 |
 | tqdm | 4.67.1 |
 | neuraloperator / neuralop | 2.0.0 |
+| pytest | 8.4.1 |
 
 ## Install Command
 
@@ -60,7 +61,7 @@ configs/
 checkpoints/
 ```
 
-## Day 1 Status (Updated 2026-05-01)
+## Day 1 Status (Updated 2026-05-02)
 
 - The Python environment can import all required Day 1 packages.
 - GPU is not available in the current interpreter.
@@ -74,4 +75,20 @@ checkpoints/
   python tests\smoke_test_burgers_dataset.py --hdf5-path data\raw\1D_Burgers_Sols_Nu0.001.hdf5 --reduced-resolution 4
   ```
   Output: input shape `(2, 10, 256)`, target shape `(2, 190, 256)`, dtype `torch.float32`.
-- Official competition requirements archived under `docs/official/`.
+
+## Day 2 Status (Updated 2026-05-02)
+
+- FNO model implementation complete in `src/models/fno.py`:
+  - `SpectralConv1d`: FFT-based spectral convolution layer
+  - `FNO1d`: Base Fourier Neural Operator for 1D problems
+  - `FNO1dTime`: Autoregressive variant for time-series prediction
+- Smoke tests passed in `tests/smoke_test_fno.py`:
+  - Forward pass shape tests for all components
+  - Gradient flow verification
+  - Parameter count sanity checks
+  - Deterministic behavior in eval mode
+- Training script `train.py` ready with:
+  - AdamW optimizer, ReduceLROnPlateau scheduler
+  - Checkpoint save/restore support
+  - Configurable model hyperparameters (modes, width, n_layers)
+- Inference script `predict.py` ready for batch prediction generation.

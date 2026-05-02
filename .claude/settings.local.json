@@ -5,7 +5,19 @@
       "Bash(D:/python解释器/python.exe -c \"import torch; print\\('torch version:', torch.__version__\\); print\\('CUDA available:', torch.cuda.is_available\\(\\)\\); print\\('CUDA version:', torch.version.cuda if torch.cuda.is_available\\(\\) else 'N/A'\\); print\\('GPU count:', torch.cuda.device_count\\(\\) if torch.cuda.is_available\\(\\) else 0\\); print\\('GPU name:', torch.cuda.get_device_name\\(0\\) if torch.cuda.is_available\\(\\) else 'N/A'\\)\")",
       "Bash(D:/python解释器/python.exe -c \"import torch; print\\(f'torch: {torch.__version__}'\\); print\\(f'CUDA available: {torch.cuda.is_available\\(\\)}'\\); print\\(f'CUDA version: {torch.version.cuda}' if torch.cuda.is_available\\(\\) else 'N/A'\\); print\\(f'GPU count: {torch.cuda.device_count\\(\\)}'\\); [print\\(f'GPU {i}: {torch.cuda.get_device_name\\(i\\)}'\\) for i in range\\(torch.cuda.device_count\\(\\)\\)]\")",
       "Bash(\"D:/python解释器/python.exe\" -c \"import torch; print\\('torch version:', torch.__version__\\); print\\('CUDA available:', torch.cuda.is_available\\(\\)\\); print\\('CUDA version:', torch.version.cuda\\); print\\('GPU count:', torch.cuda.device_count\\(\\)\\); print\\('GPU name:', torch.cuda.get_device_name\\(0\\) if torch.cuda.is_available\\(\\) else 'N/A'\\)\")",
-      "Bash(\"D:/python解释器/python.exe\" -c \"\nimport torch\nimport sys\nprint\\('Python:', sys.version\\)\nprint\\('torch version:', torch.__version__\\)\nprint\\('CUDA available:', torch.cuda.is_available\\(\\)\\)\nprint\\('CUDA version:', torch.version.cuda if hasattr\\(torch.version, 'cuda'\\) else 'N/A'\\)\nprint\\('GPU count:', torch.cuda.device_count\\(\\)\\)\nif torch.cuda.is_available\\(\\):\n    print\\('GPU name:', torch.cuda.get_device_name\\(0\\)\\)\n    print\\('GPU memory:', torch.cuda.get_device_properties\\(0\\).total_mem_gb, 'GB'\\)\n\")"
+      "Bash(\"D:/python解释器/python.exe\" -c \"\nimport torch\nimport sys\nprint\\('Python:', sys.version\\)\nprint\\('torch version:', torch.__version__\\)\nprint\\('CUDA available:', torch.cuda.is_available\\(\\)\\)\nprint\\('CUDA version:', torch.version.cuda if hasattr\\(torch.version, 'cuda'\\) else 'N/A'\\)\nprint\\('GPU count:', torch.cuda.device_count\\(\\)\\)\nif torch.cuda.is_available\\(\\):\n    print\\('GPU name:', torch.cuda.get_device_name\\(0\\)\\)\n    print\\('GPU memory:', torch.cuda.get_device_properties\\(0\\).total_mem_gb, 'GB'\\)\n\")",
+      "Bash(python train.py --hdf5-path data/raw/1D_Burgers_Sols_Nu0.001.hdf5 --epochs 2 --batch-size 4 --device cpu)",
+      "Bash(python:*)",
+      "Bash(zip:*)",
+      "Bash(powershell -Command \"Compress-Archive -Path ''submissions/task1_pred.hdf5'', ''submissions/task1_time.csv'', ''submissions/task1_logs.log'' -DestinationPath ''submissions/submission.zip'' -Force\")",
+      "Bash(powershell -Command \"\\(Get-Item 'D:\\\\pythonpro\\\\PDE\\\\submissions\\\\submission.zip'\\).Length / 1GB\")",
+      "Bash(powershell -Command \"Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead\\('D:\\\\pythonpro\\\\PDE\\\\submissions\\\\submission.zip'\\).Entries | Select-Object Name, Length | Format-Table -AutoSize\")",
+      "Bash(find D:/pythonpro/PDE/data/ -name *.hdf5 -o -name *.h5)",
+      "Bash(dir D:\\\\pythonpro\\\\PDE\\\\data\\\\raw)",
+      "Bash(D:/python解释器/python.exe -m pip install pdfplumber -q)",
+      "Bash(D:/python解释器/python.exe -c \"\nimport pdfplumber\nwith pdfplumber.open\\(r'C:\\\\Users\\\\34243\\\\Desktop\\\\AI4S_神经算子PDE智能体_五天学习任务方案.pdf'\\) as pdf:\n    for i, page in enumerate\\(pdf.pages\\):\n        text = page.extract_text\\(\\)\n        if text:\n            print\\(f'=== Page {i+1} ==='\\)\n            print\\(text\\)\n            print\\(\\)\n\" 2>&1)",
+      "WebSearch",
+      "Bash(pip install:*)"
     ]
   }
 }
