@@ -92,3 +92,17 @@ checkpoints/
   - Checkpoint save/restore support
   - Configurable model hyperparameters (modes, width, n_layers)
 - Inference script `predict.py` ready for batch prediction generation.
+步骤 1：切分数据                                                                                                                                                                                        
+  python scripts/split_data.py --hdf5-path data/raw/1D_Burgers_Sols_Nu0.001.hdf5 --output-dir data/processed                                                                                            
+
+  步骤 2：训练模型
+  # 使用 FNO1dTime（自回归版本，推荐用于长期预测）
+  python train.py --hdf5-path data/processed/train.hdf5 --model-type fno1dtime --epochs 200 --batch-size 16
+
+  # 或使用基础 FNO1d（直接预测）
+  python train.py --hdf5-path data/processed/train.hdf5 --model-type fno1d --epochs 200 --batch-size 16
+
+  步骤 3：生成预测
+  python predict.py --checkpoint checkpoints/best_model.pt --test-data data/processed/test.hdf5 --output submissions/pred.hdf5
+
+  FNO1dTime 通过滚动窗口逐步预测，对后期时间步（95-190，权重 50%）的精度更好，适合比赛评分标准。

@@ -17,7 +17,8 @@
       "Bash(D:/python解释器/python.exe -m pip install pdfplumber -q)",
       "Bash(D:/python解释器/python.exe -c \"\nimport pdfplumber\nwith pdfplumber.open\\(r'C:\\\\Users\\\\34243\\\\Desktop\\\\AI4S_神经算子PDE智能体_五天学习任务方案.pdf'\\) as pdf:\n    for i, page in enumerate\\(pdf.pages\\):\n        text = page.extract_text\\(\\)\n        if text:\n            print\\(f'=== Page {i+1} ==='\\)\n            print\\(text\\)\n            print\\(\\)\n\" 2>&1)",
       "WebSearch",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(find . -type f -name *.py -o -type f -name *.md -o -type f -name *.txt -o -type f -name *.json -o -type f -name *.yaml -o -type f -name *.yml)"
     ]
   }
 }
