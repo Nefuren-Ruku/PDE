@@ -1,77 +1,67 @@
-"""Training script for FNO on 1D Burgers equation."""
+"""Training script for 1D Burgers equation using FNO from neuraloperator."""
 
 from __future__ import annotations
 
 import argparse
-import json
-import time
-from datetime import datetime
 from pathlib import Path
 
+import h5py
+import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, TensorDataset
 
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
+from model import FNO
 
-from src.data.burgers_dataset import BurgersDataset
-from src.models.fno import FNO1d, FNO1dTime
-from src.models import count_parameters
+
+def get_project_root() -> Path:
+    """Get project root directory."""
+    return Path(__file__).resolve().parent.parent.parent
+
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train FNO on 1D Burgers")
+    parser = argparse.ArgumentParser(description="Train FNO for 1D Burgers equation")
 
-    # Data
-    parser.add_argument("--hdf5-path", type=str, required=True,
-                        help="Path to HDF5 data file")
-    parser.add_argument("--input-steps", type=int, default=10,
-                        help="Number of input time steps")
-    parser.add_argument("--pred-steps", type=int, default=190,
-                        help="Number of prediction time steps")
-    parser.add_argument("--reduced-resolution", type=int, default=4,
-                        help="Spatial downsampling factor")
-    parser.add_argument("--reduced-resolution-t", type=int, default=1,
-                        help="Temporal downsampling factor")
+    parser.add_argument("--data", type=str, default="data/raw/1D_Burgers_Sols_Nu0.001.hdf5",
+                        help="Path to training HDF5 file")
+    parser.add_argument("--output", type=str, default="baselines/fno/checkpoints/fno_burgers_finetuned.pt",
+                        help="Path to save checkpoint")
+    parser.add_argument("--device", type=str, default="auto",
+                        help="Device: auto, cpu, cuda")
 
-    # Model
-    parser.add_argument("--model-type", type=str, default="fno1d",
-                        choices=["fno1d", "fno1dtime"],
-                        help="Model type: fno1d (direct) or fno1dtime (autoregressive)")
-    parser.add_argument("--modes", type=int, default=16,
+    # Model hyperparameters
+    parser.add_argument("--n-modes", type=int, default=16,
                         help="Number of Fourier modes")
-    parser.add_argument("--width", type=int, default=128,
-                        help="Hidden layer width")
-    parser.add_argument("--n-layers", type=int, default=4,
-                        help="Number of Fourier layers")
+    parser.add_argument("--hidden-channels", type=int, default=64,
+                        help="Hidden channel dimension")
+    parser.add_argument("--in-channels", type=int, default=1,
+                        help="Input channels")
     parser.add_argument("--out-channels", type=int, default=1,
-                        help="Output channels per step (FNO1dTime only, usually 1)")
+                        help="Output channels")
+    parser.add_argument("--lifting-channel-ratio", type=float, default=2.0,
+                        help="Lifting channel ratio (relative to hidden_channels)")
+    parser.add_argument("--projection-channel-ratio", type=float, default=2.0,
+                        help="Projection channel ratio (relative to hidden_channels)")
+    parser.add_argument("--n-layers", type=int, default=4,
+                        help="Number of FNO layers")
 
-    # Training
-    parser.add_argument("--batch-size", type=int, default=16,
+    # Training hyperparameters
+    parser.add_argument("--batch-size", type=int, default=20,
                         help="Batch size")
-    parser.add_argument("--epochs", type=int, default=200,
-                        help="Number of epochs")
-    parser.add_argument("--lr", type=float, default=1e-3,
+    parser.add_argument("--epochs", type=int, default=500,
+                        help="Number of training epochs")
+    parser.add_argument("--lr", type=float, default=1e-4,
                         help="Learning rate")
     parser.add_argument("--weight-decay", type=float, default=1e-4,
                         help="Weight decay")
-    parser.add_argument("--grad-clip", type=float, default=1.0,
-                        help="Gradient clipping max norm (0 to disable)")
-    parser.add_argument("--train-split", type=float, default=0.9,
-                        help="Training data fraction")
 
-    # Output
-    parser.add_argument("--output-dir", type=str, default="checkpoints",
-                        help="Output directory for checkpoints and logs")
-    parser.add_argument("--checkpoint", type=str, default=None,
-                        help="Path to checkpoint to resume from")
-
-    # Device
-    parser.add_argument("--device", type=str, default="auto",
-                        help="Device: auto, cpu, cuda, cuda:0, etc.")
+    # Downsampling
+    parser.add_argument("--pretrained", type=str, default="baselines/fno/checkpoints/1D_Burgers_Sols_Nu0.001_FNO.pt",
+                        help="Path to pre-trained checkpoint for fine-tuning")
+    parser.add_argument("--time-downsample", type=int, default=5,
+                        help="Time downsampling factor")
+    parser.add_argument("--space-downsample", type=int, default=4,
+                        help="Spatial downsampling factor")
 
     return parser.parse_args()
 
@@ -84,240 +74,158 @@ def get_device(device_str: str) -> torch.device:
     return torch.device(device_str)
 
 
-class RelativeMSELoss(nn.Module):
-    """Relative MSE loss aligned with evaluation metric.
+def load_data(path: str, time_downsample: int, space_downsample: int):
+    """Load and preprocess training data.
 
-    Computes per-timestep energy normalization:
-        sum((pred - target)^2, dim=-1) / sum(target^2 + eps, dim=-1)
-    then averages over batch and time dimensions.
-    This matches the Rel-MSE evaluation metric.
+    Args:
+        path: Path to HDF5 file
+        time_downsample: Time downsampling factor (::5)
+        space_downsample: Spatial downsampling factor (::4)
+
+    Returns:
+        input_tensor: [N, 1, x_grid] - first time step
+        output_tensor: [N, 1, x_grid] - next time step
     """
+    # Convert to absolute path if relative
+    data_path = Path(path)
+    if not data_path.is_absolute():
+        data_path = get_project_root() / data_path
 
-    def __init__(self, eps: float = 1e-8):
-        super().__init__()
-        self.eps = eps
+    print(f"Loading data from {data_path}")
+    with h5py.File(data_path, "r") as f:
+        # Data shape: [N, T, X] = [2048, 200, 1024]
+        data = np.asarray(f["tensor"])
 
-    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        sq_error = (pred - target) ** 2
-        sq_target = target ** 2 + self.eps
-        # Sum over spatial dimension (energy normalization per timestep)
-        rel_per_step = sq_error.sum(dim=-1) / sq_target.sum(dim=-1)  # [batch, n_steps]
-        return rel_per_step.mean()
+    print(f"Original data shape: {data.shape}")
 
+    # Downsample: time ::5 (200->40), space ::4 (1024->256)
+    data = data[:, ::time_downsample, ::space_downsample]
+    print(f"Downsampled shape: {data.shape}")  # [2048, 40, 256]
 
-def train_epoch(
-    model: nn.Module,
-    dataloader: DataLoader,
-    optimizer: optim.Optimizer,
-    criterion: nn.Module,
-    device: torch.device,
-) -> float:
-    model.train()
-    total_loss = 0.0
-    n_batches = 0
+    # Create input-output pairs: input = u(t), output = u(t+1)
+    # For autoregressive training, we predict next time step
+    n_samples = data.shape[0]
+    n_steps = data.shape[1]
+    x_grid = data.shape[2]
 
-    for x, y in dataloader:
-        x = x.to(device)
-        y = y.to(device)
+    # Total pairs: N * (T-1)
+    total_pairs = n_samples * (n_steps - 1)
 
-        optimizer.zero_grad()
+    inputs = np.zeros((total_pairs, 1, x_grid), dtype=np.float32)
+    outputs = np.zeros((total_pairs, 1, x_grid), dtype=np.float32)
 
-        # x: [batch, input_steps, x_grid]
-        # y: [batch, pred_steps, x_grid]
-        pred = model(x)
+    idx = 0
+    for i in range(n_samples):
+        for t in range(n_steps - 1):
+            inputs[idx, 0, :] = data[i, t, :]
+            outputs[idx, 0, :] = data[i, t + 1, :]
+            idx += 1
 
-        loss = criterion(pred, y)
-        loss.backward()
-
-        if args.grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
-
-        optimizer.step()
-
-        total_loss += loss.item()
-        n_batches += 1
-
-    return total_loss / n_batches
-
-
-@torch.no_grad()
-def evaluate(
-    model: nn.Module,
-    dataloader: DataLoader,
-    criterion: nn.Module,
-    device: torch.device,
-) -> float:
-    model.eval()
-    total_loss = 0.0
-    n_batches = 0
-
-    for x, y in dataloader:
-        x = x.to(device)
-        y = y.to(device)
-
-        pred = model(x)
-        loss = criterion(pred, y)
-
-        total_loss += loss.item()
-        n_batches += 1
-
-    return total_loss / n_batches
+    print(f"Training pairs: {total_pairs}")
+    return torch.from_numpy(inputs), torch.from_numpy(outputs)
 
 
 def main() -> None:
     args = parse_args()
     device = get_device(args.device)
+    print(f"Using device: {device}")
 
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Log file
-    log_file = output_dir / "train.log"
-
-    def log(msg: str) -> None:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        line = f"[{timestamp}] {msg}"
-        print(line)
-        with open(log_file, "a") as f:
-            f.write(line + "\n")
-
-    log(f"Arguments: {json.dumps(vars(args), indent=2)}")
-    log(f"Device: {device}")
-
-    # Dataset
-    log("Loading dataset...")
-    dataset = BurgersDataset(
-        hdf5_path=args.hdf5_path,
-        input_steps=args.input_steps,
-        pred_steps=args.pred_steps,
-        reduced_resolution=args.reduced_resolution,
-        reduced_resolution_t=args.reduced_resolution_t,
-    )
-    log(f"Dataset size: {len(dataset)}")
-    log(f"Sample shape: input={dataset.sample_shape}")
-
-    # Get spatial grid size from a sample
-    x_sample, y_sample = dataset[0]
-    x_grid = x_sample.shape[-1]
-    log(f"Spatial grid: {x_grid}")
-
-    # Train/val split
-    n_train = int(len(dataset) * args.train_split)
-    n_val = len(dataset) - n_train
-    train_dataset, val_dataset = random_split(
-        dataset, [n_train, n_val],
-        generator=torch.Generator().manual_seed(42)
-    )
-    log(f"Train: {n_train}, Val: {n_val}")
-
-    train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0
-    )
-    val_loader = DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=0
+    # Load data
+    inputs, outputs = load_data(
+        args.data,
+        args.time_downsample,
+        args.space_downsample
     )
 
-    # Model
-    if args.model_type == "fno1dtime":
-        model = FNO1dTime(
-            in_channels=args.input_steps,
-            out_channels=args.out_channels,
-            modes=args.modes,
-            width=args.width,
-            n_layers=args.n_layers,
-            n_steps=args.pred_steps,
-        ).to(device)
-        log(f"Model: FNO1dTime with {count_parameters(model):,} parameters")
-    else:
-        model = FNO1d(
-            in_channels=args.input_steps,
-            out_channels=args.pred_steps,
-            modes=args.modes,
-            width=args.width,
-            n_layers=args.n_layers,
-        ).to(device)
-        log(f"Model: FNO1d with {count_parameters(model):,} parameters")
+    # Create DataLoader
+    dataset = TensorDataset(inputs, outputs)
+    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
 
-    # Optimizer and loss
-    optimizer = optim.AdamW(
-        model.parameters(), lr=args.lr, weight_decay=args.weight_decay
-    )
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=10
-    )
-    criterion = RelativeMSELoss()
+    # Build model
+    model = FNO(
+        n_modes=[args.n_modes],
+        hidden_channels=args.hidden_channels,
+        in_channels=args.in_channels,
+        out_channels=args.out_channels,
+        lifting_channel_ratio=args.lifting_channel_ratio,
+        projection_channel_ratio=args.projection_channel_ratio,
+        n_layers=args.n_layers,
+    ).to(device)
 
-    # Resume from checkpoint
-    start_epoch = 0
-    best_val_loss = float("inf")
-    if args.checkpoint:
-        log(f"Loading checkpoint: {args.checkpoint}")
-        checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        start_epoch = checkpoint.get("epoch", 0) + 1
-        best_val_loss = checkpoint.get("best_val_loss", float("inf"))
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f"Model parameters: {n_params:,}")
+
+    # Load pretrained weights if specified
+    if args.pretrained:
+        # Convert to absolute path if relative
+        pretrained_path = Path(args.pretrained)
+        if not pretrained_path.is_absolute():
+            pretrained_path = get_project_root() / pretrained_path
+
+        print(f"Loading pretrained weights from {pretrained_path}")
+        ckpt = torch.load(pretrained_path, map_location=device, weights_only=False)
+        if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+            state_dict = ckpt["model_state_dict"]
+        else:
+            state_dict = ckpt
+        model.load_state_dict(state_dict, strict=False)
+        print("Pretrained weights loaded")
+
+    # Optimizer and scheduler
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.5)
+
+    # Loss function
+    criterion = torch.nn.MSELoss()
 
     # Training loop
-    train_start_time = time.time()
-    log(f"Starting training from epoch {start_epoch}")
+    best_loss = float("inf")
 
-    for epoch in range(start_epoch, args.epochs):
-        epoch_start = time.time()
+    for epoch in range(1, args.epochs + 1):
+        model.train()
+        total_loss = 0.0
 
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
-        val_loss = evaluate(model, val_loader, criterion, device)
+        for batch_x, batch_y in loader:
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
 
-        scheduler.step(val_loss)
+            optimizer.zero_grad()
+            pred = model(batch_x)
+            loss = criterion(pred, batch_y)
+            loss.backward()
+            optimizer.step()
 
-        epoch_time = time.time() - epoch_start
+            total_loss += loss.item() * batch_x.size(0)
 
-        log(
-            f"Epoch {epoch+1}/{args.epochs} | "
-            f"Train Loss: {train_loss:.6f} | "
-            f"Val Loss: {val_loss:.6f} | "
-            f"LR: {optimizer.param_groups[0]['lr']:.2e} | "
-            f"Time: {epoch_time:.1f}s"
-        )
+        avg_loss = total_loss / len(dataset)
+        scheduler.step()
 
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            checkpoint_path = output_dir / "best_model.pt"
-            torch.save({
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "best_val_loss": best_val_loss,
-                "config": vars(args),
-            }, checkpoint_path)
-            log(f"  -> Saved best model (val_loss={val_loss:.6f})")
+        if avg_loss < best_loss:
+            best_loss = avg_loss
 
-        # Save periodic checkpoint
-        if (epoch + 1) % 10 == 0:
-            checkpoint_path = output_dir / f"checkpoint_epoch{epoch+1}.pt"
-            torch.save({
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "best_val_loss": best_val_loss,
-                "config": vars(args),
-            }, checkpoint_path)
+        if epoch % 10 == 0 or epoch == 1:
+            print(f"Epoch {epoch:4d}/{args.epochs} | Loss: {avg_loss:.6e} | Best: {best_loss:.6e} | LR: {scheduler.get_last_lr()[0]:.2e}")
 
-    total_time = time.time() - train_start_time
-    log(f"Training completed in {total_time/60:.1f} minutes")
-    log(f"Best validation loss: {best_val_loss:.6f}")
+    # Save checkpoint
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Save final model
-    final_path = output_dir / "final_model.pt"
-    torch.save({
-        "epoch": args.epochs - 1,
+    checkpoint = {
         "model_state_dict": model.state_dict(),
-        "optimizer_state_dict": optimizer.state_dict(),
-        "best_val_loss": best_val_loss,
-        "config": vars(args),
-    }, final_path)
-    log(f"Final model saved to {final_path}")
+        "config": {
+            "n_modes": args.n_modes,
+            "hidden_channels": args.hidden_channels,
+            "in_channels": args.in_channels,
+            "out_channels": args.out_channels,
+            "lifting_channel_ratio": args.lifting_channel_ratio,
+            "projection_channel_ratio": args.projection_channel_ratio,
+            "n_layers": args.n_layers,
+            "time_downsample": args.time_downsample,
+            "space_downsample": args.space_downsample,
+        }
+    }
+    torch.save(checkpoint, output_path)
+    print(f"Checkpoint saved to {output_path}")
 
 
 if __name__ == "__main__":
