@@ -1,7 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="11547401-a838-4480-95a1-230eaa04ec5f" name="更改" comment="基线配置，未完全跑通" />
+    <list default="true" id="11547401-a838-4480-95a1-230eaa04ec5f" name="更改" comment="基线配置，未完全跑通">
+      <change beforePath="$PROJECT_DIR$/.idea/PDE.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/PDE.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/baselines/deeponet/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/baselines/deeponet/model.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/baselines/deeponet/predict.py" beforeDir="false" afterPath="$PROJECT_DIR$/baselines/deeponet/predict.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/baselines/deeponet/train.py" beforeDir="false" afterPath="$PROJECT_DIR$/baselines/deeponet/train.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/baselines/fno/predict.py" beforeDir="false" afterPath="$PROJECT_DIR$/baselines/fno/predict.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/baselines/fno/train.py" beforeDir="false" afterPath="$PROJECT_DIR$/baselines/fno/train.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/baselines/pi_deeponet/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/baselines/pi_deeponet/model.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/baselines/pi_deeponet/predict.py" beforeDir="false" afterPath="$PROJECT_DIR$/baselines/pi_deeponet/predict.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/baselines/pi_deeponet/train.py" beforeDir="false" afterPath="$PROJECT_DIR$/baselines/pi_deeponet/train.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -76,13 +87,14 @@
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "git-widget-placeholder": "baseline",
     "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "D:/pythonpro/PDE/baselines/deeponet",
+    "last_opened_file_path": "D:/pythonpro/PDE/baselines/pi_deeponet",
     "nodejs_package_manager_path": "npm",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="D:\pythonpro\PDE\baselines\pi_deeponet" />
       <recent name="D:\pythonpro\PDE\baselines\deeponet" />
       <recent name="D:\pythonpro\PDE\data\raw" />
       <recent name="D:\pythonpro\PDE\baselines\unet\checkpoints" />
@@ -107,7 +119,8 @@
       <workItem from="1777612488163" duration="13314000" />
       <workItem from="1777695786941" duration="30156000" />
       <workItem from="1777730535755" duration="679000" />
-      <workItem from="1777782135175" duration="27003000" />
+      <workItem from="1777782135175" duration="27226000" />
+      <workItem from="1777869346071" duration="15931000" />
     </task>
     <task id="LOCAL-00001" summary="day2A">
       <option name="closed" value="true" />
@@ -133,7 +146,15 @@
       <option name="project" value="LOCAL" />
       <updated>1777810188576</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL-00004" summary="基线配置，未完全跑通">
+      <option name="closed" value="true" />
+      <created>1777810511808</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1777810511808</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -169,10 +190,10 @@
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/PDE$burgers_dataset.coverage" NAME="burgers_dataset 覆盖结果" MODIFIED="1777618175096" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/src/data" />
-    <SUITE FILE_PATH="coverage/PDE$predict.coverage" NAME="predict 覆盖结果" MODIFIED="1777797610033" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/baselines/fno" />
+    <SUITE FILE_PATH="coverage/PDE$predict.coverage" NAME="predict 覆盖结果" MODIFIED="1777885716959" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/baselines/pi_deeponet" />
     <SUITE FILE_PATH="coverage/PDE$.coverage" NAME=" 覆盖结果" MODIFIED="1777722101676" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/PDE$__init__.coverage" NAME="__init__ 覆盖结果" MODIFIED="1777803330750" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/baselines/fno" />
     <SUITE FILE_PATH="coverage/PDE$model.coverage" NAME="model 覆盖结果" MODIFIED="1777809747060" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/baselines/deeponet" />
-    <SUITE FILE_PATH="coverage/PDE$train.coverage" NAME="train 覆盖结果" MODIFIED="1777810009840" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/baselines/deeponet" />
+    <SUITE FILE_PATH="coverage/PDE$train.coverage" NAME="train 覆盖结果" MODIFIED="1777883849198" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/baselines/pi_deeponet" />
   </component>
 </project>

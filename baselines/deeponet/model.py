@@ -30,6 +30,12 @@ class DeepONet(StructureNN):
         self.__initialize()
 
     def forward(self, x):
+        # 防御性检查
+        expected_dim = self.branch_dim + self.trunk_dim
+        if x.shape[-1] != expected_dim:
+            raise ValueError(
+                f"Input last dim {x.shape[-1]} != branch_dim {self.branch_dim} + trunk_dim {self.trunk_dim}"
+            )
         x_branch, x_trunk = x[..., :self.branch_dim], x[..., self.branch_dim:]
         x_branch = self.modus['Branch'](x_branch)
         for i in range(1, self.trunk_depth):
@@ -57,11 +63,10 @@ class DeepONet(StructureNN):
             self.weight_init_(self.modus['TrLinM{}'.format(i)].weight)
             nn.init.constant_(self.modus['TrLinM{}'.format(i)].bias, 0)
 
+
 class DeepONet1D(DeepONet):
     def __init__(self, branch_dim=256, trunk_dim=2, width=50, branch_depth=2, trunk_depth=3,
                  activation='relu', initializer='Glorot normal'):
         super().__init__(branch_dim=branch_dim, trunk_dim=trunk_dim,
                          branch_depth=branch_depth, trunk_depth=trunk_depth,
                          width=width, activation=activation, initializer=initializer)
-
-

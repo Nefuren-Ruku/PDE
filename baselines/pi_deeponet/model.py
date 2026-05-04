@@ -7,8 +7,10 @@ class PIDeepONet1D(nn.Module):
                  activation=nn.Tanh, nu=0.001):
         super().__init__()
         self.nu = nu
+        self.branch_dim = branch_layers[0]   # 256
+        self.trunk_dim = trunk_layers[0]     # 2
 
-        # 分支网络
+        # Branch net
         layers = []
         for i in range(len(branch_layers) - 1):
             layers.append(nn.Linear(branch_layers[i], branch_layers[i+1]))
@@ -16,7 +18,7 @@ class PIDeepONet1D(nn.Module):
                 layers.append(activation())
         self.branch = nn.Sequential(*layers)
 
-        # 主干网络
+        # Trunk net
         layers = []
         for i in range(len(trunk_layers) - 1):
             layers.append(nn.Linear(trunk_layers[i], trunk_layers[i+1]))
@@ -24,40 +26,50 @@ class PIDeepONet1D(nn.Module):
                 layers.append(activation())
         self.trunk = nn.Sequential(*layers)
 
-    def forward(self, branch_input, trunk_input):
-        """返回预测 u(x,t)"""
-        b = self.branch(branch_input)        # [batch, hidden]
-        t = self.trunk(trunk_input)          # [batch, n_points, hidden]
-        return torch.sum(b.unsqueeze(1) * t, dim=-1)  # [batch, n_points]
+    def forward(self, x):
+        """
+        x: 展平后的拼接输入 [..., branch_dim + trunk_dim]
+        例如 [B*N, 258]
+        """
+        branch_input = x[..., :self.branch_dim]   # [..., 256]
+        trunk_input = x[..., self.branch_dim:]    # [..., 2]
+        b = self.branch(branch_input)             # [..., hidden]
+        t = self.trunk(trunk_input)               # [..., hidden]
+        return torch.sum(b * t, dim=-1)           # [..., 1] or [...]
 
     def compute_pde_residual(self, branch_input, trunk_input):
         """
-        计算 Burgers 方程残差：u_t + u * u_x - nu * u_xx
-        trunk_input: [batch, n_points, 2]，最后一维是 (x, t)
+        计算 Burgers 残差，需要 (x,t) 坐标的梯度。
+        branch_input: [B, 256]
+        trunk_input:  [B, N, 2]
         """
-        x = trunk_input[..., 0:1]   # [batch, n_points, 1]
-        t = trunk_input[..., 1:2]   # [batch, n_points, 1]
+        x = trunk_input[..., 0:1]   # [B, N, 1]
+        t = trunk_input[..., 1:2]
 
-        # 需要计算对 x 和 t 的导数，因此输入需可导
         x.requires_grad_(True)
         t.requires_grad_(True)
-        trunk = torch.cat([x, t], dim=-1)
+        trunk = torch.cat([x, t], dim=-1)   # [B, N, 2]
 
-        u = self.forward(branch_input, trunk)  # [batch, n_points]
+        B, N, _ = trunk.shape
+        # 构建展平输入以复用 forward
+        branch_exp = branch_input.unsqueeze(1).expand(-1, N, -1)    # [B, N, 256]
+        inp = torch.cat([branch_exp, trunk], dim=-1)               # [B, N, 258]
+        inp_flat = inp.reshape(-1, self.branch_dim + self.trunk_dim)
 
-        # 一阶导：u_x
+        u_flat = self.forward(inp_flat)       # [B*N]
+        u = u_flat.view(B, N)                 # [B, N]
+
+        # 导数
         u_x = torch.autograd.grad(u, x, grad_outputs=torch.ones_like(u),
-                                  create_graph=True)[0]
-        # 二阶导：u_xx
+                                  create_graph=True)[0]            # [B, N, 1]
         u_xx = torch.autograd.grad(u_x, x, grad_outputs=torch.ones_like(u_x),
                                    create_graph=True)[0]
-        # 对时间导数：u_t
         u_t = torch.autograd.grad(u, t, grad_outputs=torch.ones_like(u),
                                   create_graph=True)[0]
 
-        # Burgers 方程残差
+        # Burgers 残差
         residual = u_t + u.unsqueeze(-1) * u_x - self.nu * u_xx
-        return residual.squeeze(-1)  # [batch, n_points]
+        return residual.squeeze(-1)   # [B, N]
 
 
-PI_DeepONet = PIDeepONet1D   # 统一别名
+PI_DeepONet = PIDeepONet1D

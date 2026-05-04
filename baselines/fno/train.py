@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import time
 from pathlib import Path
 
 import h5py
@@ -16,7 +18,6 @@ from model import FNO
 def get_project_root() -> Path:
     """Get project root directory."""
     return Path(__file__).resolve().parent.parent.parent
-
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,7 +104,6 @@ def load_data(path: str, time_downsample: int, space_downsample: int):
     print(f"Downsampled shape: {data.shape}")  # [2048, 40, 256]
 
     # Create input-output pairs: input = u(t), output = u(t+1)
-    # For autoregressive training, we predict next time step
     n_samples = data.shape[0]
     n_steps = data.shape[1]
     x_grid = data.shape[2]
@@ -180,6 +180,7 @@ def main() -> None:
 
     # Training loop
     best_loss = float("inf")
+    train_start = time.time()  # 记录训练开始时间
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -206,6 +207,9 @@ def main() -> None:
         if epoch % 10 == 0 or epoch == 1:
             print(f"Epoch {epoch:4d}/{args.epochs} | Loss: {avg_loss:.6e} | Best: {best_loss:.6e} | LR: {scheduler.get_last_lr()[0]:.2e}")
 
+    train_time = time.time() - train_start
+    print(f"Training time: {train_time:.2f}s")
+
     # Save checkpoint
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -226,6 +230,14 @@ def main() -> None:
     }
     torch.save(checkpoint, output_path)
     print(f"Checkpoint saved to {output_path}")
+
+    # Save training time to CSV
+    time_csv_path = output_path.parent / "train_time.csv"
+    with open(time_csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["train_time"])
+        writer.writerow([train_time])
+    print(f"Training time saved to {time_csv_path}")
 
 
 if __name__ == "__main__":

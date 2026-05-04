@@ -3,84 +3,50 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import time
 from pathlib import Path
 
 import h5py
 import numpy as np
 import torch
+from scipy.interpolate import interp1d
 
 from model import FNO
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate predictions")
+# 默认路径基于脚本文件位置
+_DEFAULT_CHECKPOINT_PATH = str(Path(__file__).parent / "checkpoints/fno_burgers_finetuned.pt")
+_DEFAULT_TEST_DATA_PATH = str(Path(__file__).parent.parent.parent / "data/raw/task1_test.hdf5")
+_DEFAULT_OUTPUT_PATH = str(Path(__file__).parent.parent.parent / "task1_pred.hdf5")
 
-    parser.add_argument("--checkpoint", type=str, required=True,
-                        help="Path to model checkpoint")
-    parser.add_argument("--test-data", type=str, required=True,
-                        help="Path to test HDF5 file")
-    parser.add_argument("--output", type=str, default="task1_pred.hdf5",
-                        help="Path to output HDF5 file")
-    parser.add_argument("--device", type=str, default="auto",
-                        help="Device: auto, cpu, cuda")
 
-    return parser.parse_args()
+def get_project_root() -> Path:
+    return Path(__file__).resolve().parent.parent.parent
 
 
 def get_device(device_str: str) -> torch.device:
     if device_str == "auto":
-        if torch.cuda.is_available():
-            return torch.device("cuda")
-        return torch.device("cpu")
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(device_str)
 
 
-def compute_rel_mse(pred: np.ndarray, gt: np.ndarray, eps: float = 1e-8) -> float:
-    """计算 Rel-MSE 指标。
+def load_checkpoint(checkpoint_path: str, device: torch.device):
+    ckpt_path = Path(checkpoint_path)
+    if not ckpt_path.is_absolute():
+        ckpt_path = get_project_root() / ckpt_path
 
-    公式：
-        - 逐时间步：rel_t = Σ(pred_t - gt_t)² / Σ(gt_t)²
-        - 逐样本：对时间步取均值，上限 5.0
-        - 最终：对所有样本取均值
+    print(f"Loading checkpoint from {ckpt_path}")
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
 
-    Args:
-        pred: 预测值 [n_samples, n_steps, x_grid]
-        gt: 真实值 [n_samples, n_steps, x_grid]
-        eps: 数值稳定性
-
-    Returns:
-        Rel-MSE 值，0 表示完美预测
-    """
-    n_samples = pred.shape[0]
-    sample_rel_mse = np.zeros(n_samples, dtype=np.float32)
-
-    for i in range(n_samples):
-        n_steps = pred.shape[1]
-        rel_t = np.zeros(n_steps, dtype=np.float32)
-        for t in range(n_steps):
-            diff_sq = np.sum((pred[i, t] - gt[i, t]) ** 2)
-            gt_sq = np.sum(gt[i, t] ** 2) + eps
-            rel_t[t] = diff_sq / gt_sq
-        sample_rel_mse[i] = min(np.mean(rel_t), 5.0)
-
-    return float(np.mean(sample_rel_mse))
-
-
-def main() -> None:
-    args = parse_args()
-    device = get_device(args.device)
-
-    print(f"Loading model from {args.checkpoint}")
-    checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
-    if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        state_dict = checkpoint["model_state_dict"]
-        config = checkpoint.get("config", {})
+    # 兼容两种保存格式
+    if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+        state_dict = ckpt["model_state_dict"]
+        config = ckpt.get("config", {})
     else:
-        state_dict = checkpoint
+        state_dict = ckpt
         config = {}
 
-    # Build model
     model = FNO(
         n_modes=[config.get("n_modes", 16)],
         hidden_channels=config.get("hidden_channels", 64),
@@ -92,128 +58,131 @@ def main() -> None:
     ).to(device)
     model.load_state_dict(state_dict, strict=False)
     model.eval()
-    print("Model loaded successfully")
+    print("Model loaded")
+    return model, config
 
-    # Load test data
-    print(f"Loading test data from {args.test_data}")
-    with h5py.File(args.test_data, "r") as f:
-        for key in ["tensor", "data", "u", "solution"]:
-            if key in f:
-                test_data = np.asarray(f[key])
-                break
-        else:
-            for key in f:
-                if isinstance(f[key], h5py.Dataset):
-                    test_data = np.asarray(f[key])
-                    break
 
-    print(f"Test data shape: {test_data.shape}")
+def load_test_data(path: str, space_ds: int):
+    """加载测试数据并只做空间降采样（如果需要），返回原始高分辨率和降采样后的数据。"""
+    data_path = Path(path)
+    if not data_path.is_absolute():
+        data_path = get_project_root() / data_path
 
-    # Get downsampling factors
-    time_downsample = config.get("time_downsample", 5)
-    space_downsample = config.get("space_downsample", 4)
+    print(f"Loading test data from {data_path}")
+    with h5py.File(data_path, "r") as f:
+        data = np.asarray(f["tensor"], dtype=np.float32)   # [N, 10, 1024] or [N, 10, 256]
 
-    # Spatial downsampling
-    if test_data.ndim == 3:
-        test_data = test_data[:, :, ::space_downsample]
-    elif test_data.ndim == 4:
-        test_data = test_data[:, :, :, ::space_downsample]
+    print(f"Original shape: {data.shape}")
 
-    print(f"After spatial downsampling: {test_data.shape}")
-
-    n_samples = test_data.shape[0]
-    n_original_steps = test_data.shape[1]
-    x_grid = test_data.shape[-1]
-
-    # Time downsampling for model input
-    # Original: 200 steps -> downsampled: 40 steps
-    n_downsampled_steps = n_original_steps // time_downsample
-    if n_original_steps % time_downsample == 0:
-        n_downsampled_steps = n_original_steps // time_downsample
+    # 如果原始空间维度是 1024，则降采样到 256；否则保持
+    if data.shape[-1] == 1024:
+        data_ds = data[:, :, ::space_ds]   # [N, 10, 256]
     else:
-        n_downsampled_steps = n_original_steps // time_downsample + 1
+        data_ds = data                     # 已经是 256
+    print(f"After spatial downsampling: {data_ds.shape}")
+    return data_ds, data   # 返回降采样后的输入，以及原始真实初始条件（高分辨率）
 
-    # Output: [N, 200, 256]
-    output = np.zeros((n_samples, n_original_steps, x_grid), dtype=np.float32)
 
-    print(f"Generating predictions for {n_samples} samples...")
+def autoregressive_predict(model, initial_condition, device, n_steps=40):
+    """
+    自回归预测。
+    initial_condition: [N, 2, 256] 降采样后的初始条件（两个时间步）
+    返回: [N, 40, 256]
+    """
+    n_samples, init_steps, x_grid = initial_condition.shape
+    full_pred = np.zeros((n_samples, n_steps, x_grid), dtype=np.float32)
+    full_pred[:, :init_steps, :] = initial_condition
+
+    for t in range(init_steps, n_steps):
+        inp = full_pred[:, t-1:t, :]  # [N, 1, X]
+        inp_tensor = torch.from_numpy(inp).to(device)
+        with torch.no_grad():
+            full_pred[:, t:t+1, :] = model(inp_tensor).cpu().numpy()
+
+    return full_pred
+
+
+def upsample_time(data, orig_t=200):
+    """时间上采样 40->200，线性插值。"""
+    n_samples, n_time_down, x_grid = data.shape
+    t_down = np.linspace(0, 1, n_time_down)
+    t_up = np.linspace(0, 1, orig_t)
+    data_2d = data.transpose(0, 2, 1).reshape(-1, n_time_down)
+    f = interp1d(t_down, data_2d, kind="linear", axis=1)
+    result_2d = f(t_up)
+    return result_2d.reshape(n_samples, x_grid, orig_t).transpose(0, 2, 1).astype(np.float32)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="FNO prediction for 1D Burgers")
+    parser.add_argument("--checkpoint", type=str, default=_DEFAULT_CHECKPOINT_PATH)
+    parser.add_argument("--test-data", type=str, default=_DEFAULT_TEST_DATA_PATH)
+    parser.add_argument("--output", type=str, default=_DEFAULT_OUTPUT_PATH)
+    parser.add_argument("--device", type=str, default="auto")
+    args = parser.parse_args()
+
+    device = get_device(args.device)
+    print(f"Using device: {device}")
+
+    model, config = load_checkpoint(args.checkpoint, device)
+    space_ds = config.get("space_downsample", 4)
+    time_ds = config.get("time_downsample", 5)
+
+    # 加载测试数据（空间降采样到256，同时保留原始高分辨率用于覆盖前10步）
+    test_data_ds, test_data_orig = load_test_data(args.test_data, space_ds)
+
+    # 时间降采样，得到自回归的初始条件
+    # 原始时间步为10，取::time_ds 得到索引 0,5 共2步
+    initial_cond = test_data_ds[:, ::time_ds, :]   # [N, 2, 256]
+    print(f"Initial condition (downsampled) shape: {initial_cond.shape}")
+
+    print("Running autoregressive prediction...")
     inference_start = time.time()
-
-    with torch.no_grad():
-        for i in range(n_samples):
-            sample = test_data[i]
-            if sample.ndim == 3:
-                sample = sample.squeeze()
-
-            # Time downsampling: interpolate from original to downsampled
-            # Input: first 10 steps (original) -> downsampled to ~2 steps
-            # We need to handle this carefully
-
-            # Copy original time steps to output
-            output[i, :10, :] = sample
-
-            # Autoregressive prediction on downsampled time grid
-            # Start from first downsampled time step
-            downsampled_data = sample[::time_downsample, :]  # [40, 256]
-
-            # Predict autoregressively
-            pred_steps = len(downsampled_data)
-
-            # Use first step as initial condition
-            x = torch.as_tensor(downsampled_data[0:1, :], dtype=torch.float32, device=device)
-            x = x.unsqueeze(0)  # [1, 1, 256]
-
-            predictions = [downsampled_data[0]]
-
-            for t in range(1, pred_steps):
-                pred = model(x)  # [1, 1, 256]
-                predictions.append(pred.squeeze().cpu().numpy())
-                x = pred  # Use prediction as next input
-
-            # Interpolate predictions back to original time grid
-            pred_downsampled = np.stack(predictions, axis=0)  # [40, 256]
-
-            # Linear interpolation to original 200 steps
-            from scipy.interpolate import interp1d
-            x_old = np.linspace(0, 1, len(pred_downsampled))
-            x_new = np.linspace(0, 1, n_original_steps)
-
-            pred_upsampled = np.zeros((n_original_steps, x_grid), dtype=np.float32)
-            for j in range(x_grid):
-                f = interp1d(x_old, pred_downsampled[:, j], kind="linear")
-                pred_upsampled[:, j] = f(x_new)
-
-            # Store predictions (skip first 10 input steps)
-            output[i, 10:, :] = pred_upsampled[10:, :]
-
-            if (i + 1) % 100 == 0:
-                print(f"  Processed {i+1}/{n_samples}")
-
+    pred_down = autoregressive_predict(model, initial_cond, device, n_steps=40)
     inference_time = time.time() - inference_start
     print(f"Inference time: {inference_time:.2f}s")
+    print(f"Prediction (downsampled): {pred_down.shape}")
 
-    # Compute Rel-MSE (steps 10:200)
-    gt = test_data[:, 10:, :]  # Ground truth for prediction window
-    pred_all = output[:, 10:, :]  # Predictions for same window
-    rel_mse = compute_rel_mse(pred_all, gt)
-    print(f"Rel-MSE: {rel_mse:.6f}")
+    # 时间上采样到 200 步
+    print("Upsampling in time...")
+    pred_up = upsample_time(pred_down, orig_t=200)
+    print(f"After temporal upsample: {pred_up.shape}")
 
-    # Save output
-    print(f"Saving predictions to {args.output}")
-    import csv
-    time_csv_path = Path(args.output).parent / "task1_time.csv"
+    # 获取真实前10步（高分辨率）并空间降采样到256，用于覆盖
+    true_ic_highres = test_data_orig[:, :10, :]           # [N, 10, 1024] or [N, 10, 256]
+    if true_ic_highres.shape[-1] == 1024:
+        true_ic = true_ic_highres[:, :, ::space_ds]       # [N, 10, 256]
+    else:
+        true_ic = true_ic_highres
+    pred_up[:, :10, :] = true_ic.astype(np.float32)
+
+    # 保存
+    out_path = Path(args.output)
+    if not out_path.is_absolute():
+        out_path = get_project_root() / out_path
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(out_path, "w") as f:
+        f.create_dataset("data", data=pred_up)
+    print(f"Saved to {out_path}")
+
+    # 尝试读取训练时间
+    train_time = 0.0
+    train_time_path = Path(args.checkpoint).parent / "train_time.csv"
+    if train_time_path.exists():
+        with open(train_time_path, "r", newline="") as f:
+            reader = csv.reader(f)
+            next(reader, None)
+            row = next(reader, None)
+            if row:
+                train_time = float(row[0])
+
+    # 保存 task1_time.csv
+    time_csv_path = out_path.parent / "task1_time.csv"
     with open(time_csv_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["train_time", "inference_time"])
-        writer.writerow([0.0, inference_time])
-
-    with h5py.File(args.output, "w") as f:
-        f.create_dataset("data", data=output)
-        f.attrs["rel_mse"] = rel_mse
-
-    print("Done!")
-
-
+        writer.writerow([train_time, inference_time])
+    print(f"Timing info saved to {time_csv_path}")
 
 
 if __name__ == "__main__":
