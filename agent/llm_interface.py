@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -42,6 +45,14 @@ class LLMInterface:
         self.reasoning_effort = reasoning_effort
         self.thinking_enabled = thinking_enabled
         self._client: Any | None = None
+        self.log_file: Path | None = None
+
+    def _write_log(self, entry: dict[str, Any]) -> None:
+        if self.log_file is None:
+            return
+        self.log_file.parent.mkdir(parents=True, exist_ok=True)
+        with self.log_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     @staticmethod
     def _default_base_url(provider: str) -> str | None:
@@ -134,6 +145,7 @@ class LLMInterface:
             payload["thinking"] = {"type": "enabled" if self.thinking_enabled else "disabled"}
 
         endpoint = self.base_url.rstrip("/") + "/chat/completions"
+        start_time = time.time()
         response = httpx.post(
             endpoint,
             headers={
@@ -144,6 +156,7 @@ class LLMInterface:
             timeout=120.0,
         )
         response.raise_for_status()
+        elapsed = time.time() - start_time
         data = response.json()
         choices = data.get("choices") or []
         if not choices:
@@ -154,6 +167,13 @@ class LLMInterface:
         reasoning_content = message.get("reasoning_content")
         if reasoning_content:
             content = f"[reasoning]\n{reasoning_content}\n\n[answer]\n{content}".strip()
+
+        self._write_log({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "elapsed_seconds": elapsed,
+            "role": "assistant",
+            "content": content,
+        })
 
         normalized_calls: list[dict[str, Any]] = []
         for call in message.get("tool_calls") or []:
